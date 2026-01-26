@@ -130,7 +130,7 @@ def evaluation_node(state: NegotiationState):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    file_name = f"Negotiation_Result_{session_id}.csv"
+    file_name = f"Reflexion_Result{timestamp}_{session_id}.csv"
     file_path = os.path.join(save_dir, file_name)
 
     formatted_history = []
