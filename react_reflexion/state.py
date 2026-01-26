@@ -24,7 +24,6 @@ class NegotiationState(TypedDict):
     final_result: str
     buyer_score: int
     seller_score: int
-    mediator_feedback: str
     is_finished: bool
 
     

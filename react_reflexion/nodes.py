@@ -1,7 +1,6 @@
 from state import NegotiationState
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI
 from langchain.chat_models import init_chat_model
 from tools.rag_tools import policy_search_tool
 import uuid
@@ -13,9 +12,9 @@ from langchain_core.prompts import (
     SystemMessagePromptTemplate, 
     HumanMessagePromptTemplate
 )
-from prompt import NEGOTIATOR_SYSTEM_PROMPT, MEDIATOR_SYSTEM_PROMPT, EVALUATOR_SYSTEM_PROMPT, REFLECTION_SYSTEM_PROMPT
-from prompt import NEGOTIATOR_HUMAN_PROMPT, MEDIATOR_HUMAN_PROMPT, EVALUATOR_HUMAN_PROMPT, REFLECTION_HUMAN_PROMPT
-from scemarios import PRIORITIES, SCENARIOS
+from prompts import NEGOTIATOR_SYSTEM_PROMPT, EVALUATOR_SYSTEM_PROMPT, REFLECTION_SYSTEM_PROMPT
+from prompts import NEGOTIATOR_HUMAN_PROMPT, EVALUATOR_HUMAN_PROMPT, REFLECTION_HUMAN_PROMPT
+from scenarios import PRIORITIES, SCENARIOS
 
 def setup_node(state: NegotiationState):
     u_role = state.get("user_role", "구매자") 
@@ -32,9 +31,9 @@ def setup_node(state: NegotiationState):
         "ai_scenario": SCENARIOS[a_role],
         "user_priority": PRIORITIES[u_role],
         "ai_priority": PRIORITIES[a_role],
-        "mediator_feedback": "중재자 피드백 없음.",
         "is_finished": False,
         "model": model,
+        "reflections": state.get("reflections", [])
     }
     return initial_state
 
@@ -47,7 +46,7 @@ def negotiator_node(state: NegotiationState):
     system_message = SystemMessagePromptTemplate.from_template(
         template=NEGOTIATOR_SYSTEM_PROMPT,
         input_variables=["role", "opponent", "scenario", "priority", "recent_summary", 
-                         "past_feedback_summary", "reflections"]
+                        "reflections"]
     )
     human_message = HumanMessagePromptTemplate.from_template(
         template=NEGOTIATOR_HUMAN_PROMPT,
@@ -63,7 +62,7 @@ def negotiator_node(state: NegotiationState):
         "scenario": state["ai_scenario"],
         "priority": state["ai_priority"],
         "recent_summary": "\n".join([f"{type(m).__name__}: {m.content}" for m in recent_msgs]),
-        "past_feedback_summary": state.get("mediator_feedback", "중재자 피드백 없음."),
+        "reflections": "\n".join(state.get("reflections", [])),
         "last_message": state["messages"][-1].content if state["messages"] else f"이제 협상을 시작합니다. 당신은 {state['ai_role']}로서 상대방에게 첫 마디를 건네세요."
     })
 
@@ -78,39 +77,10 @@ def negotiator_node(state: NegotiationState):
 
     return {"messages": [AIMessage(content=clean_response)]}
 
-def mediator_node(state: NegotiationState):
-    llm = init_chat_model(model=state["model"], temperature=0.5)
-    
-    dialogue = "\n".join([f"[{type(m).__name__}] {m.content}" for m in state["messages"]])
-    
-    system_message = SystemMessagePromptTemplate.from_template(
-        template=MEDIATOR_SYSTEM_PROMPT
-    )
-
-    human_message = HumanMessagePromptTemplate.from_template(
-        template=MEDIATOR_HUMAN_PROMPT,
-        input_variables=["dialogue"]
-    )
-    
-    prompt = ChatPromptTemplate.from_messages([system_message, human_message])
-
-    chain = prompt | llm | StrOutputParser()
-    response = chain.invoke({"dialogue": dialogue})
-
-    clean_msg = response.split("최종 발화:")[-1].strip()
-
-    if "개입 없음" in clean_msg:
-        return {"mediator_feedback": "개입 없음"}
-    
-    return {
-        "messages": [AIMessage(content=f"[중재자 개입]: {clean_msg}")],
-        "mediator_feedback": clean_msg
-    }
-
 def evaluation_node(state: NegotiationState):
     llm = init_chat_model(model=state["model"], temperature=0.5)
 
-    unique_id = str(uuid.uuid4())[:8] # 짧은 UID 생성
+    unique_id = str(uuid.uuid4())[:8] 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_id = f"{timestamp}_{unique_id}"
     
@@ -122,17 +92,15 @@ def evaluation_node(state: NegotiationState):
 
     human_message = HumanMessagePromptTemplate.from_template(
         template=EVALUATOR_HUMAN_PROMPT,
-        input_variables=["dialogue", "past_feedback", "buyer_priority", "seller_priority"]
+        input_variables=["dialogue", "buyer_priority", "seller_priority"]
     )
     
     prompt = ChatPromptTemplate.from_messages([system_message, human_message])
 
-    # 5. 실행 및 결과 파싱
     chain = prompt | llm | StrOutputParser()
     
     result_text = chain.invoke({
         "dialogue": dialogue,
-        "past_feedback": state.get("mediator_feedback", "없음"),
         "buyer_priority": state["ai_priority"] if state['ai_role'] == "판매자" else state["user_priority"], 
         "seller_priority": state["ai_priority"] if state['ai_role'] == "구매자" else state["user_priority"]
     }).split("최종 결과:")[-1].strip()
@@ -167,17 +135,17 @@ def evaluation_node(state: NegotiationState):
 
     formatted_history = []
     for m in state["messages"]:
-        speaker = "구매자" if m.type == "human" else ("중재자" if "[중재자]" in m.content else "판매자")
-        content = m.content.replace("[중재자]: ", "").strip()
+        speaker = state["user_role"] if m.type == "human" else state["ai_role"]
+        content = m.content.strip()
         formatted_history.append([speaker, content])
 
     df = pd.DataFrame(formatted_history, columns=["화자", "발화"])
     df["회차"] = session_id
     df["구매자 우선순위"] = state["ai_priority"] if state['ai_role'] == "판매자" else state["user_priority"]
     df["판매자 우선순위"] = state["ai_priority"] if state['ai_role'] == "구매자" else state["user_priority"]
-    df["구매자 점수"] = buyer_score # state["role"]에 따른 점수 분배 로직 필요
+    df["구매자 점수"] = buyer_score 
     df["판매자 점수"] = seller_score
-    df["중재자 결과"] = result_text
+    df["평가 결과"] = result_text
 
     df.to_csv(file_path, index=False, encoding="utf-8-sig")
 
@@ -189,7 +157,7 @@ def evaluation_node(state: NegotiationState):
         "is_finished": True
     }
 
-def refection_node(state: NegotiationState):
+def reflection_node(state: NegotiationState):
     llm = init_chat_model(model=state["model"], temperature=0.5)
 
     trajectory = "\n".join([f"[{m.type}] {m.content}" for m in state["messages"]])
@@ -214,13 +182,20 @@ def refection_node(state: NegotiationState):
 
     chain = prompt | llm
 
-    result_text = chain.invoke({
+    response = chain.invoke({
         "role": state["ai_role"],
         "scenario": state["ai_scenario"],
         "priority": state["ai_priority"],
         "scores": scores,
         "past_reflections": reflections,
         "trajectory": trajectory
-    }).split("최종 결과:")[-1].strip()
+    })
+
+    content = response.content
+
+    if "최종 결과" in content:
+        result_text = content.split("최종 결과:")[-1].strip()
+    else:
+        result_text = content.strip()
 
     return {"reflections": [result_text]}

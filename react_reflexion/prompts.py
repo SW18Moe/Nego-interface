@@ -16,7 +16,6 @@ NEGOTIATOR_SYSTEM_PROMPT = """
 
 [현재 상황 정보]
 - 이전 협상 대화 요약: {recent_summary}
-- 이전 중재자 피드백: {past_feedback_summary}
 
 [이전 반성 기록]
 {reflections}
@@ -65,22 +64,6 @@ NEGOTIATOR_HUMAN_PROMPT = """
 반드시 "최종 발화:" 뒤에 실제 대사만 출력하세요.
 """
 
-MEDIATOR_SYSTEM_PROMPT = """
-너는 협상의 중재자 AI이다.
-
-추론 방식 (CoT):
-1. "생각 단계"에서 대화 상황과 감정 상태를 고려하여 개입 여부를 판단한다. (출력하지 않음)
-2. 마지막에만 "최종 발화:" 뒤에 실제 개입 발화를 출력한다.
-3. 개입이 필요 없으면 "최종 발화: 개입 없음"이라고 출력한다.
-"""
-
-MEDIATOR_HUMAN_PROMPT = """
-[지금까지 대화]
-{dialogue}
-
-[중재자 개입 여부 및 발화]
-"""
-
 EVALUATOR_SYSTEM_PROMPT = """
 너는 공정한 중재자 AI야.
 모든 발화를 보고 최종 결과를 판단해야 해.
@@ -104,9 +87,6 @@ EVALUATOR_SYSTEM_PROMPT = """
 EVALUATOR_HUMAN_PROMPT = """
 [전체 대화]
 {dialogue}
-
-이전 평가 참고:
-{past_feedback}
 
 구매자 차선책 후보: {buyer_priority}
 판매자 차선책 후보: {seller_priority}
