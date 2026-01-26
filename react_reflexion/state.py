@@ -1,12 +1,13 @@
 from typing import Annotated, TypedDict, List
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
+import operator
 
 class NegotiationState(TypedDict):
     # Trajectory (STM)
     messages: Annotated[List[BaseMessage], add_messages] 
     # Experience (LTM)
-    reflections: Annotated[List[str], add_messages]
+    reflections: Annotated[List[str], operator.add]
 
     # Initial Settings
     user_role: str
