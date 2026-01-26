@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-from state import NegotiationState
-from nodes import ai_node, setup_node, mediator_node, evaluation_node
+from .state import NegotiationState
+from .nodes import ai_node, setup_node, mediator_node, evaluation_node
 from langgraph.prebuilt import ToolNode, tools_condition
 from tools.rag_tools import policy_search_tool
 
