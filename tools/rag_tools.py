@@ -3,12 +3,17 @@ import chromadb
 from chromadb.utils import embedding_functions
 from langchain_core.tools import tool
 
+CURRENT_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(CURRENT_FILE_DIR, "..", "naver_pay_db")
+DB_PATH = os.path.abspath(DB_PATH)
+
 openai_ef = embedding_functions.OpenAIEmbeddingFunction(
     api_key=os.getenv("OPENAI_API_KEY"),
     model_name='text-embedding-3-small'
 )
 
-client = chromadb.PersistentClient(path="./naver_pay_db")
+
+client = chromadb.PersistentClient(path=DB_PATH)
 collection = client.get_or_create_collection(name="refund_policy", embedding_function=openai_ef)
 
 @tool
