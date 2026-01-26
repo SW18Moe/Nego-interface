@@ -10,6 +10,17 @@ from react_reflexion.nodes import (
     reflection_node,
     setup_node
 )
+def route_to_setup_or_negotiator(state:NegotiationState):
+    """
+    START에서 실행될 라우터 로직
+    """
+    messages = state.get("messages", [])
+    is_finished = state.get("is_finished", False)
+
+    if not messages or is_finished:
+        return "setup"
+    
+    return "negotiator"
 
 def route_after_negotiation(state: NegotiationState):
     """
@@ -53,7 +64,14 @@ def build_reflexion_graph():
     workflow.add_node("tools", ToolNode(tools))
 
     # [Start] -> [Setup] 
-    workflow.add_edge(START, "setup")
+    workflow.add_conditional_edges(
+        START,
+        route_to_setup_or_negotiator,
+        {
+            "setup": "setup",
+            "negotiator": "negotiator"
+        }
+    )
     
     # [Setup] -> [Negotiator]
     workflow.add_edge("setup", "negotiator")
