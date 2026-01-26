@@ -34,11 +34,11 @@ def setup_node(state: NegotiationState):
         "ai_priority": PRIORITIES[a_role],
         "mediator_feedback": "중재자 피드백 없음.",
         "is_finished": False,
-        "model": model
+        "model": model,
     }
     return initial_state
 
-def ai_node(state: NegotiationState):
+def negotiator_node(state: NegotiationState):
     tools = [policy_search_tool]
     llm = init_chat_model(model=state["model"], temperature=0.9).bind_tools(tools)
     
@@ -129,6 +129,7 @@ def evaluation_node(state: NegotiationState):
 
     # 5. 실행 및 결과 파싱
     chain = prompt | llm | StrOutputParser()
+    
     result_text = chain.invoke({
         "dialogue": dialogue,
         "past_feedback": state.get("mediator_feedback", "없음"),
@@ -187,3 +188,39 @@ def evaluation_node(state: NegotiationState):
         "seller_score": seller_score,
         "is_finished": True
     }
+
+def refection_node(state: NegotiationState):
+    llm = init_chat_model(model=state["model"], temperature=0.5)
+
+    trajectory = "\n".join([f"[{m.type}] {m.content}" for m in state["messages"]])
+    reflections = "\n".join(state.get("reflections", []))
+
+    scores = (
+        f"최종 결과: {state.get('final_result', 'N/A')}\n"
+        f"구매자 점수: {state.get('buyer_score', 0)}\n"
+        f"판매자 점수: {state.get('seller_score', 0)}"
+    )
+
+    system_message = SystemMessagePromptTemplate.from_template(
+        template=REFLECTION_SYSTEM_PROMPT  
+    )
+
+    human_message = HumanMessagePromptTemplate.from_template(
+        template=REFLECTION_HUMAN_PROMPT,
+        input_variables=["role", "scenario", "priority", "scores", "past_reflections", "trajectory"]
+    )
+    
+    prompt = ChatPromptTemplate.from_messages([system_message, human_message])
+
+    chain = prompt | llm
+
+    result_text = chain.invoke({
+        "role": state["ai_role"],
+        "scenario": state["ai_scenario"],
+        "priority": state["ai_priority"],
+        "scores": scores,
+        "past_reflections": reflections,
+        "trajectory": trajectory
+    }).split("최종 결과:")[-1].strip()
+
+    return {"reflections": [result_text]}
