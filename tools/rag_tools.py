@@ -2,6 +2,9 @@ import os
 import chromadb
 from chromadb.utils import embedding_functions
 from langchain_core.tools import tool
+from dotenv import load_dotenv
+
+load_dotenv()
 
 CURRENT_FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(CURRENT_FILE_DIR, "..", "naver_pay_db")
