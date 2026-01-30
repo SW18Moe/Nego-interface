@@ -151,43 +151,6 @@ SVI (Shared Value Integration) 접근 설명:
 
     return {"messages": [AIMessage(content=clean_response)]}
 
-def mediator_node(state: NegotiationState):
-    llm = init_chat_model(model=state["model"], temperature=0.5)
-    
-    dialogue = "\n".join([f"[{type(m).__name__}] {m.content}" for m in state["messages"]])
-    system_prompt = """
-너는 협상의 중재자 AI이다.
-
-추론 방식 (CoT):
-1. "생각 단계"에서 대화 상황과 감정 상태를 고려하여 개입 여부를 판단한다. (출력하지 않음)
-2. 마지막에만 "최종 발화:" 뒤에 실제 개입 발화를 출력한다.
-3. 개입이 필요 없으면 "최종 발화: 개입 없음"이라고 출력한다.
-""".strip()
-
-    human_prompt = """
-[지금까지 대화]
-{dialogue}
-
-[중재자 개입 여부 및 발화]
-""".strip()
-    
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("user", human_prompt)
-    ])
-
-    chain = prompt | llm | StrOutputParser()
-    response = chain.invoke({"dialogue": dialogue})
-
-    clean_msg = response.split("최종 발화:")[-1].strip()
-
-    if "개입 없음" in clean_msg:
-        return {"mediator_feedback": "개입 없음"}
-    
-    return {
-        "messages": [AIMessage(content=f"[중재자 개입]: {clean_msg}")],
-        "mediator_feedback": clean_msg
-    }
 
 def evaluation_node(state: NegotiationState):
     llm = init_chat_model(model=state["model"], temperature=0.5)
