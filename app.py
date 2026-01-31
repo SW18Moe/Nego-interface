@@ -4,7 +4,7 @@ import sys
 import os
 from langchain_core.messages import HumanMessage, AIMessage
 
-from baseline.graph import create_graph as build_baseline_graph
+from cot_icl.graph import create_graph as build_baseline_graph
 from react_reflexion.graph import build_reflexion_graph
 
 
