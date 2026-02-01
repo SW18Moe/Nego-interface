@@ -14,8 +14,8 @@ import pandas as pd
 from core.prompts import (
     COT_NEGOTIATOR_SYSTEM,
     COT_NEGOTIATOR_HUMAN, 
-    COT_EVALUATOR_SYSTEM,
-    COT_EVALUATOR_HUMAN
+    EVALUATOR_SYSTEM,
+    EVALUATOR_HUMAN
 )
 from core.scenarios import (
     PRIORITIES,
@@ -132,53 +132,69 @@ def ai_node(state: NegotiationState):
 def evaluation_node(state: NegotiationState):
     llm = init_chat_model(model=state["model"], temperature=0.5)
 
-    unique_id = str(uuid.uuid4())[:8] # 짧은 UID 생성
+    if state["user_role"] == "구매자":
+        buyer_goals_dict = state["user_goals"]
+        seller_goals_dict = state["ai_goals"]
+    else:
+        buyer_goals_dict = state["ai_goals"]
+        seller_goals_dict = state["user_goals"]
+
+    b_items = sorted(buyer_goals_dict.items(), key=lambda x: x[1], reverse=True)
+    s_items = sorted(seller_goals_dict.items(), key=lambda x: x[1], reverse=True)
+
+    b_main_txt = b_items[0][0] if b_items else "목표 없음"
+    b_sub_txt = b_items[1][0] if len(b_items) > 1 else "목표 없음"
+    
+    s_main_txt = s_items[0][0] if s_items else "목표 없음"
+    s_sub_txt = s_items[1][0] if len(s_items) > 1 else "목표 없음"
+
+    unique_id = str(uuid.uuid4())[:8] 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_id = f"{timestamp}_{unique_id}"
     
     dialogue = "\n".join([f"[{m.type}] {m.content}" for m in state["messages"]])
-    
 
     system_message = SystemMessagePromptTemplate.from_template(
-        template=COT_EVALUATOR_SYSTEM,
+        template=EVALUATOR_SYSTEM,
+        input_variables=["buyer_main_goal", "buyer_sub_goal", "seller_main_goal", "seller_sub_goal"] 
     )
+
     human_message = HumanMessagePromptTemplate.from_template(
-        template=COT_EVALUATOR_HUMAN,
-        input_variables=["dialogue", "buyer_priority", "seller_priority"]
+        template=EVALUATOR_HUMAN,
+        input_variables=["dialogue", "buyer_main_goal", "buyer_sub_goal", "seller_main_goal", "seller_sub_goal"]
     )
+    
+    prompt = ChatPromptTemplate.from_messages([system_message, human_message])
 
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_message),
-        ("user", human_message)
-    ])
-
-    # 5. 실행 및 결과 파싱
     chain = prompt | llm | StrOutputParser()
+    
     result_text = chain.invoke({
         "dialogue": dialogue,
-        "buyer_priority": state["ai_priority"] if state['ai_role'] == "판매자" else state["user_priority"], 
-        "seller_priority": state["ai_priority"] if state['ai_role'] == "구매자" else state["user_priority"]
+        "buyer_main_goal": b_main_txt,
+        "buyer_sub_goal": b_sub_txt,
+        "seller_main_goal": s_main_txt,
+        "seller_sub_goal": s_sub_txt
     }).split("최종 결과:")[-1].strip()
 
     buyer_score = 0
     seller_score = 0
 
-    # 환불 점수
-    if "환불: 완전" in result_text:
+    if "구매자 제1목표: 완전" in result_text:
         buyer_score += 70
-        seller_score += 0
-    elif "환불: 부분" in result_text:
+    elif "구매자 제1목표: 부분" in result_text:
         buyer_score += 50
-        seller_score += 20
-    elif "환불: 없음" in result_text:
-        buyer_score += 0
-        seller_score += 70
+    # 미달성은 0점 (자동)
 
-    # 차선책 점수
-    if "구매자 차선책: 달성" in result_text:
+    if "구매자 제2목표: 달성" in result_text:
         buyer_score += 30
-    if "판매자 차선책: 달성" in result_text:
+
+    # (2) 판매자 점수 계산
+    if "판매자 제1목표: 완전" in result_text:
+        seller_score += 70
+    elif "판매자 제1목표: 부분" in result_text:
+        seller_score += 50
+
+    if "판매자 제2목표: 달성" in result_text:
         seller_score += 30
 
     # 결과 저장
@@ -186,22 +202,27 @@ def evaluation_node(state: NegotiationState):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    file_name = f"Negotiation_Result_{session_id}.csv"
+    file_name = f"Reflexion_Result_{session_id}.csv"
     file_path = os.path.join(save_dir, file_name)
 
     formatted_history = []
     for m in state["messages"]:
-        speaker = "구매자" if m.type == "human" else ("중재자" if "[중재자]" in m.content else "판매자")
-        content = m.content.replace("[중재자]: ", "").strip()
+        speaker = state["user_role"] if m.type == "human" else state["ai_role"]
+        content = m.content.strip()
         formatted_history.append([speaker, content])
 
     df = pd.DataFrame(formatted_history, columns=["화자", "발화"])
-    df["회차"] = session_id
-    df["구매자 우선순위"] = state["ai_priority"] if state['ai_role'] == "판매자" else state["user_priority"]
-    df["판매자 우선순위"] = state["ai_priority"] if state['ai_role'] == "구매자" else state["user_priority"]
-    df["구매자 점수"] = buyer_score # state["role"]에 따른 점수 분배 로직 필요
+
+    df["session_id"] = session_id
+    df["Human Role"] = state["user_role"]
+    df["AI Role"] = state["ai_role"]
+
+    df["구매자 목표"] = str(buyer_goals_dict)
+    df["판매자 목표"] = str(seller_goals_dict)
+
+    df["구매자 점수"] = buyer_score 
     df["판매자 점수"] = seller_score
-    df["중재자 결과"] = result_text
+    df["평가 상세"] = result_text
 
     df.to_csv(file_path, index=False, encoding="utf-8-sig")
 

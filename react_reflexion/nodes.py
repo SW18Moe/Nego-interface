@@ -14,8 +14,8 @@ from langchain_core.prompts import (
     SystemMessagePromptTemplate, 
     HumanMessagePromptTemplate
 )
-from core.prompts import REFELXION_NEGOTIATOR_SYSTEM, REFELXION_EVALUATOR_SYSTEM, REFELXION_REFLECTION_SYSTEM
-from core.prompts import REFELXION_NEGOTIATOR_HUMAN, REFELXION_EVALUATOR_HUMAN, REFELXION_REFLECTION_HUMAN
+from core.prompts import REFELXION_NEGOTIATOR_SYSTEM, EVALUATOR_SYSTEM, REFELXION_REFLECTION_SYSTEM
+from core.prompts import REFELXION_NEGOTIATOR_HUMAN, EVALUATOR_HUMAN, REFELXION_REFLECTION_HUMAN
 from core.scenarios import PRIORITIES, SCENARIOS
 
 def setup_node(state: NegotiationState):
@@ -151,12 +151,12 @@ def evaluation_node(state: NegotiationState):
     dialogue = "\n".join([f"[{m.type}] {m.content}" for m in state["messages"]])
 
     system_message = SystemMessagePromptTemplate.from_template(
-        template=REFELXION_EVALUATOR_SYSTEM,
+        template=EVALUATOR_SYSTEM,
         input_variables=["buyer_main_goal", "buyer_sub_goal", "seller_main_goal", "seller_sub_goal"] 
     )
 
     human_message = HumanMessagePromptTemplate.from_template(
-        template=REFELXION_EVALUATOR_HUMAN,
+        template=EVALUATOR_HUMAN,
         input_variables=["dialogue", "buyer_main_goal", "buyer_sub_goal", "seller_main_goal", "seller_sub_goal"]
     )
     
