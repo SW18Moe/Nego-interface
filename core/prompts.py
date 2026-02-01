@@ -110,8 +110,7 @@ REFELXION_NEGOTIATOR_SYSTEM = """
 {scenario}
 
 [협상 목표]
-1. 최우선 순위: 환불 문제 해결 (구매자 : 받기 / 판매자: 거절)
-2. 차선책: "{priority}"
+{priority}
 
 [페르소나]
 - 당신은 AI가 아닌 감정을 가진 사람입니다.
