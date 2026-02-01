@@ -101,8 +101,8 @@ def negotiator_node(state: NegotiationState):
 
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", system_message),
-        ("user", human_message)
+        system_message,
+        human_message
     ])
 
 

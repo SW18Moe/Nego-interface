@@ -1,49 +1,84 @@
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
-from .state import NegotiationState
-from .nodes import ai_node, setup_node, mediator_node, evaluation_node
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import ToolNode
 from tools.rag_tools import policy_search_tool
 
+from core.state import NegotiationState
+from cot_icl.nodes import (
+    negotiator_node,
+    evaluation_node,
+    setup_node
+)
 
-def create_graph():
-    def should_continue(state: NegotiationState):
-        last_message = state["messages"][-1].content if state["messages"] else ""
-        
-        if "합의" in last_message or "종료" in last_message or len(state["messages"]) > 30:
-            return "evaluate"
-        return "human_input"
+def route_to_setup_or_negotiator(state:NegotiationState):
+    """
+    START에서 실행될 라우터 로직
+    """
+    messages = state.get("messages", [])
+    is_finished = state.get("is_finished", False)
 
+    if not messages or is_finished:
+        return "setup"
+    
+    return "negotiator"
+
+def route_after_negotiation(state: NegotiationState):
+    """
+    협상 노드가 끝난 후 어디로 갈지 결정
+    """
+    last_msg = state["messages"][-1]
+
+    if hasattr(last_msg, "tool_calls") and last_msg.tool_calls:
+        return "tools"
+    
+    MAX_TURNS = 10
+    current_turns = len(state["messages"]) // 2
+    if state.get("is_finished"):
+        return "evaluator"
+    
+    if current_turns >= MAX_TURNS:
+        return "evaluator"
+    
+    return END
+
+def build_cot_icl_graph():
     workflow = StateGraph(NegotiationState)
+    memory = MemorySaver()
+    tools = [policy_search_tool]
 
-    workflow.add_node("ai_agent", ai_node)
-    workflow.add_node("setup_node", setup_node)
-    workflow.add_node("mediator", mediator_node)
-    workflow.add_node("evaluate", evaluation_node)
-    workflow.add_node("human_input", lambda state: state)
-    workflow.add_node("tools", ToolNode([policy_search_tool]))
+    workflow.add_node("setup", setup_node)
+    workflow.add_node("negotiator", negotiator_node)
+    workflow.add_node("evaluator", evaluation_node)
+    workflow.add_node("tools", ToolNode(tools))
 
-    workflow.set_entry_point("setup_node")
-    workflow.add_edge("setup_node", "ai_agent")
-
+    # [Start] -> [Setup] 
     workflow.add_conditional_edges(
-        "ai_agent",
-        tools_condition,
+        START,
+        route_to_setup_or_negotiator,
         {
-            "tools": "tools",
-            "__end__": "mediator"
+            "setup": "setup",
+            "negotiator": "negotiator"
         }
     )
-    workflow.add_edge("tools", "ai_agent")
+    
+    # [Setup] -> [Negotiator]
+    workflow.add_edge("setup", "negotiator")
+
+    # [Negotiator] -> [분기점] (계속 대화 or 평가?)
     workflow.add_conditional_edges(
-        "mediator",
-        should_continue,
+        "negotiator",
+        route_after_negotiation,
         {
-            "evaluate": "evaluate",      # 협상 종료 시 평가 노드로
-            "human_input": "human_input"  # 계속 진행 시 사람 입력 대기로
+            "tools": "tools",        
+            "evaluator": "evaluator",
+            END: END 
         }
     )
-    workflow.add_edge("human_input", "ai_agent")
-    workflow.add_edge("evaluate", END)
 
-    return workflow.compile(checkpointer=MemorySaver(), interrupt_before=["human_input"])
+    # [Tools] -> [Negotiator]
+    workflow.add_edge("tools", "negotiator")
+
+    # [Evaluator] -> [분기점] (성공 or 반성?)
+    workflow.add_edge("evaluator", END)
+
+    return workflow.compile(checkpointer=memory)

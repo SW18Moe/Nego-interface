@@ -4,7 +4,7 @@ import sys
 import os
 from langchain_core.messages import HumanMessage, AIMessage
 
-from cot_icl.graph import create_graph as build_baseline_graph
+from cot_icl.graph import build_cot_icl_graph
 from react_reflexion.graph import build_reflexion_graph
 
 
@@ -43,7 +43,7 @@ if not st.session_state.is_started:
             mode = st.radio(
                 "🧪 실험 모드 선택",
                 ["CoT+In-context learning", "ReAct+Reflexion"],
-                index=1
+                index=0
             )
             
             # 2. 역할 선택
@@ -103,7 +103,7 @@ if not st.session_state.is_started:
             # 시작 버튼
             if st.button("🚀 협상 시작하기", use_container_width=True, type="primary"):
                 # 세션 초기화 및 그래프 로드
-                st.session_state.mode = "Baseline" if "Baseline" in mode else "Reflexion"
+                st.session_state.mode = "CoT+In-context learning" if "CoT+In-context learning" in mode else "Reflexion"
                 st.session_state.user_role = role
                 st.session_state.model_name = model_name
                 st.session_state.config["configurable"]["thread_id"] = str(uuid.uuid4())
@@ -120,8 +120,8 @@ if not st.session_state.is_started:
                 }
                 
                 # 그래프 선택 로드
-                if st.session_state.mode == "Baseline":
-                    st.session_state.graph = build_baseline_graph()
+                if st.session_state.mode == "CoT+In-context learning":
+                    st.session_state.graph = build_cot_icl_graph()
                 else:
                     st.session_state.graph = build_reflexion_graph()
                 
