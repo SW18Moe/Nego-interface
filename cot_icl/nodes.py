@@ -63,7 +63,7 @@ def setup_node(state: NegotiationState):
     }
     return initial_state
 
-def ai_node(state: NegotiationState):
+def negotiator_node(state: NegotiationState):
     tools = [policy_search_tool]
     llm = init_chat_model(model=state["model"], temperature=0.9).bind_tools(tools)
     
@@ -112,7 +112,7 @@ def ai_node(state: NegotiationState):
         "role": state["ai_role"],
         "opponent": state["user_role"],
         "scenario": state["ai_scenario"],
-        "priority": state["ai_priority"],
+        "priority": full_priority_context,
         "recent_summary": "\n".join([f"{type(m).__name__}: {m.content}" for m in recent_msgs]),
         "last_message": state["messages"][-1].content if state["messages"] else f"이제 협상을 시작합니다. 당신은 {state['ai_role']}로서 상대방에게 첫 마디를 건네세요."
     })
