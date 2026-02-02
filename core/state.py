@@ -31,9 +31,11 @@ class NegotiationState(TypedDict):
     
     # for React+Reflexion mode
     reflections: Optional[Annotated[List[str], operator.add]]
+    buyer_reward: float
+    seller_reward: float
     
     # evaluate result
     final_result: str
-    buyer_score: int
-    seller_score: int
+    buyer_score: float
+    seller_score: float
     is_finished: bool
