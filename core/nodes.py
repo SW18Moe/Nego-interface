@@ -15,7 +15,11 @@ from core.prompts import (
     COT_NEGOTIATOR_SYSTEM,
     COT_NEGOTIATOR_HUMAN, 
     EVALUATOR_SYSTEM,
-    EVALUATOR_HUMAN
+    EVALUATOR_HUMAN,
+    REFELXION_NEGOTIATOR_SYSTEM,
+    REFELXION_NEGOTIATOR_HUMAN,
+    REFELXION_REFLECTION_SYSTEM,
+    REFELXION_REFLECTION_HUMAN
 )
 from core.scenarios import (
     PRIORITIES,
@@ -27,10 +31,22 @@ from langchain_core.prompts import (
     HumanMessagePromptTemplate
 )
 
+PROMPT_REGISTRY = {
+    "reflexion": {
+        "system": REFELXION_NEGOTIATOR_SYSTEM,
+        "human": REFELXION_NEGOTIATOR_HUMAN
+    },
+    "cot": {
+        "system": COT_NEGOTIATOR_SYSTEM,
+        "human": COT_NEGOTIATOR_HUMAN
+    }
+}
+
 def setup_node(state: NegotiationState):
     u_role = state.get("user_role", "구매자") 
     a_role = "판매자" if u_role == "구매자" else "구매자"
     model = state.get("model", "gpt-4o")
+    mode = state.get("mode", "reflexion")
 
     delete_messages = [RemoveMessage(id=m.id) for m in state.get("messages", [])]
 
@@ -52,6 +68,7 @@ def setup_node(state: NegotiationState):
         "ai_role": a_role, 
         "model": model,
         "is_finished": False,
+        "mode": mode,
 
         "user_scenario": SCENARIOS[u_role],
         "ai_scenario": SCENARIOS[a_role],
@@ -73,53 +90,27 @@ def setup_node(state: NegotiationState):
     return initial_state
 
 def negotiator_node(state: NegotiationState):
+    mode = state.get("prompt_mode", "reflexion")
+    templates = PROMPT_REGISTRY.get(mode, PROMPT_REGISTRY["reflexion"])
+
     tools = [policy_search_tool]
     llm = init_chat_model(model=state["model"], temperature=0.9).bind_tools(tools)
     
     recent_msgs = state["messages"][-4:] if state["messages"] else []
+    recent_summary = "\n".join([f"{type(m).__name__}: {m.content}" for m in recent_msgs])
 
-    # priority 가져오기
-    goals = state.get("ai_goals", {})
-    sorted_goals = sorted(goals.items(), key=lambda x: x[1], reverse=True)
-    strategy_hint = ""
-    (top_goal, top_score), (sub_goal, sub_score) = sorted_goals[0], sorted_goals[1]
-    if top_score >= 70:
-        strategy_hint = (
-            f"당신에게 '{top_goal}'(배점: {top_score}점)은 절대 타협할 수 없는 최우선 가치입니다."
-            f"이를 지키기 위해 '{sub_goal}'은 과감히 양보하거나 협상 카드로 사용해도 좋습니다."
-        )
-    elif 40 <= top_score <= 60:
-        strategy_hint = (
-            f"두 목표({top_goal}, {sub_goal})의 중요도가 대등합니다. "
-            f"어느 하나를 포기하기보다, 두 가지를 모두 얻어낼 수 있는 창의적인 대안을 모색하세요."
-        )
-    else:
-        strategy_hint = (
-                f"'{top_goal}'에 조금 더 비중을 두되, 상황에 따라 유연하게 대처하세요."
-            )
-    full_priority_context = f"{state['ai_priority']}\n{strategy_hint}"
-
-    # reflection 가져오기
-    raw_reflections = state.get("reflections", [])
-    safe_reflections = []
-    for r in raw_reflections:
-        if isinstance(r, str):
-            safe_reflections.append(r)
-        elif hasattr(r, "content"):
-            safe_reflections.append(r.content)
-        else:
-            safe_reflections.append(str(r))
+    weighted_priority_context = _get_weighted_priority(state)
     
-    # 프롬프트 구성
-    system_message = SystemMessagePromptTemplate.from_template(
-        template=REFELXION_NEGOTIATOR_SYSTEM,
-        input_variables=["role", "opponent", "scenario", "priority", "recent_summary", 
-                        "reflections"]
+    reflections_str = _parse_reflections(state.get("reflections", []))
+
+    last_message = (
+        state["messages"][-1].content 
+        if state["messages"] 
+        else f"이제 협상을 시작합니다. 당신은 {state['ai_role']}로서 상대방에게 첫 마디를 건네세요."
     )
-    human_message = HumanMessagePromptTemplate.from_template(
-        template=REFELXION_NEGOTIATOR_HUMAN,
-        input_variables=["opponent", "last_message"]
-    )
+
+    system_message = SystemMessagePromptTemplate.from_template(templates["system"])
+    human_message = HumanMessagePromptTemplate.from_template(templates["human"])
     prompt = ChatPromptTemplate.from_messages([system_message, human_message])
 
     chain = prompt | llm
@@ -128,10 +119,10 @@ def negotiator_node(state: NegotiationState):
         "role": state["ai_role"],
         "opponent": state["user_role"],
         "scenario": state["ai_scenario"],
-        "priority": full_priority_context,
-        "recent_summary": "\n".join([f"{type(m).__name__}: {m.content}" for m in recent_msgs]),
-        "reflections": "\n".join(safe_reflections),
-        "last_message": state["messages"][-1].content if state["messages"] else f"이제 협상을 시작합니다. 당신은 {state['ai_role']}로서 상대방에게 첫 마디를 건네세요."
+        "priority": weighted_priority_context,
+        "recent_summary": recent_summary,
+        "reflections": reflections_str,
+        "last_message": last_message
     })
 
     if response.tool_calls:
@@ -145,6 +136,50 @@ def negotiator_node(state: NegotiationState):
 
     return {"messages": [AIMessage(content=clean_response)]}
 
+def reflection_node(state: NegotiationState):
+    llm = init_chat_model(model=state["model"], temperature=0.5)
+
+    weighted_priority = _get_weighted_priority(state)
+
+    trajectory = "\n".join([f"[{m.type}] {m.content}" for m in state["messages"]])
+    reflections = "\n".join(state.get("reflections", []))
+
+    scores = (
+        f"최종 결과: {state.get('final_result', 'N/A')}\n"
+        f"구매자 점수: {state.get('buyer_score', 0)}\n"
+        f"판매자 점수: {state.get('seller_score', 0)}"
+    )
+
+    system_message = SystemMessagePromptTemplate.from_template(
+        template=REFELXION_REFLECTION_SYSTEM
+    )
+
+    human_message = HumanMessagePromptTemplate.from_template(
+        template=REFELXION_REFLECTION_HUMAN,
+        input_variables=["role", "scenario", "priority", "scores", "past_reflections", "trajectory"]
+    )
+    
+    prompt = ChatPromptTemplate.from_messages([system_message, human_message])
+
+    chain = prompt | llm
+
+    response = chain.invoke({
+        "role": state["ai_role"],
+        "scenario": state["ai_scenario"],
+        "priority": weighted_priority,
+        "scores": scores,
+        "past_reflections": reflections,
+        "trajectory": trajectory
+    })
+
+    content = response.content
+
+    if "최종 결과" in content:
+        result_text = content.split("최종 결과:")[-1].strip()
+    else:
+        result_text = content.strip()
+
+    return {"reflections": [result_text]}
 
 def logging_node(state: NegotiationState):
     """
@@ -362,5 +397,48 @@ def _save_result_to_csv(state, result_text, buyer_points, seller_points):
 
     df.to_csv(file_path, index=False, encoding="utf-8-sig")
 
+def _get_weighted_priority(state: NegotiationState) -> str:
+    goals = state.get("ai_goals", {})
+    if not goals:
+        return state.get("ai_priority", "")
 
+    sorted_goals = sorted(goals.items(), key=lambda x: x[1], reverse=True)
+    
+    priority_lines = []
+    total_score = 0
+    
+    for rank, (goal, score) in enumerate(sorted_goals, 1):
+        total_score += score
+        
+        if score >= 70:
+            tag = "[절대 사수/타협 불가]"
+        elif score >= 30:
+            tag = "[중요/부분 타협 가능]"
+        else:
+            tag = "[협상 카드/양보 가능]"
+            
+        priority_lines.append(f"{rank}순위. {goal} (배점: {score}점) {tag}")
+
+    priority_content = "\n".join(priority_lines)
+
+    strategy_instruction = (
+        f"당신의 목표는 위 항목들의 달성 여부에 따른 '총 획득 점수'를 최대화하는 것입니다.\n"
+        f"- 배점이 높은 항목은 반드시 지켜야 합니다.\n"
+        f"- 배점이 낮은 항목은 배점이 높은 항목을 얻기 위한 Trade-off로 적극 활용하세요.\n"
+        f"- 상대가 배점이 높은 항목을 위협하면 강하게 방어하고, 배점이 낮은 항목을 요구하면 쿨하게 양보하여 신뢰를 얻으세요."
+    )
+
+    return f"{priority_content}\n{strategy_instruction}"
+
+def _parse_reflections(reflections) -> str:
+    """Reflection 객체 안전 변환"""
+    safe_reflections = []
+    for r in reflections:
+        if isinstance(r, str):
+            safe_reflections.append(r)
+        elif hasattr(r, "content"):
+            safe_reflections.append(r.content)
+        else:
+            safe_reflections.append(str(r))
+    return "\n".join(safe_reflections)
 

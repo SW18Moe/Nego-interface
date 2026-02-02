@@ -10,7 +10,8 @@ class NegotiationState(TypedDict):
     # meta data
     user_role: str         
     ai_role: str
-    model: str             
+    model: str
+    mode: str             
     
     # scenario and summary
     ai_scenario: str
