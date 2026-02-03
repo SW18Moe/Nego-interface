@@ -55,6 +55,7 @@ data/
 inputs/
 outputs/
 conversations/
+images/
 
 ### IDE & OS 
 .vscode/

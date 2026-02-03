@@ -1,4 +1,6 @@
 from core.state import NegotiationState
+import itertools
+import matplotlib.pyplot as plt
 from langchain_core.messages import AIMessage
 from langchain_core.messages import RemoveMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -209,9 +211,36 @@ def logging_node(state: NegotiationState):
         "dialogue": dialogue,
     }).split("최종 결과:")[-1].strip()
 
-    buyer_points, seller_points = _calculate_points(state, result_text)
+    unique_id = str(uuid.uuid4())[:8]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_id = f"{unique_id}_{timestamp}"
 
-    _save_result_to_csv(state, dialogue, buyer_points, seller_points)
+    buyer_points, seller_points = _calculate_points(state, result_text)
+    all_outcomes, nash_point = _calculate_nash_point(state)
+
+    try:
+        _save_result_to_csv(
+            state=state, 
+            dialogue=dialogue, 
+            result_text=result_text,
+            buyer_points=buyer_points, 
+            seller_points=seller_points, 
+            seesion_id=session_id)
+    
+    except Exception as e:
+        print(f"csv 저장 실패: {e}")
+    
+    try:
+        _draw_pareto_plot(
+            all_outcomes=all_outcomes,
+            nash_point=nash_point,
+            buyer_score=buyer_points,
+            seller_score=seller_points,
+            session_id=session_id
+        )
+    
+    except Exception as e:
+        print(f"그래프 저장 실패: {e}")
 
     # 7. 최종 상태 업데이트
     return {
@@ -363,15 +392,12 @@ def _calculate_rewards(state, result_text):
 
     return buyer_reward, seller_reward
 
-def _save_result_to_csv(state, result_text, buyer_points, seller_points):
+def _save_result_to_csv(state, dialogue, result_text, buyer_points, seller_points, seesion_id):
     save_dir = "conversations"
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    unique_id = str(uuid.uuid4())[:8]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    file_name = f"Reflexion_Result_{timestamp}_{unique_id}.csv"
+    file_name = f"Reflexion_Result_{seesion_id}.csv"
     file_path = os.path.join(save_dir, file_name)
 
     formatted_history = []
@@ -384,9 +410,10 @@ def _save_result_to_csv(state, result_text, buyer_points, seller_points):
     seller_goals = state["ai_goals"] if state["user_role"] == "구매자" else state["user_goals"]
 
     df = pd.DataFrame(formatted_history, columns=["화자", "발화"])
-    df["session_id"] = f"{timestamp}_{unique_id}"
+    df["session_id"] = f"{seesion_id}"
     df["Human Role"] = state["user_role"]
     df["AI Role"] = state["ai_role"]
+    df["전체 대화"] = dialogue
     
     df["구매자 목표"] = str(buyer_goals)
     df["판매자 목표"] = str(seller_goals)
@@ -470,3 +497,108 @@ def _create_llm(state, temperature):
         )
 
     return init_chat_model(model=full_model_name, temperature=temperature)
+
+def _calculate_nash_point(state):
+    """
+    가능한 모든 협상 결과를 시뮬레이션하여
+    1) 모든 가능한 점수 리스트 (파레토 구름용)
+    2) Nash Point (최적 합의점)
+    두 가지를 반환합니다.
+    """
+    buyer_goals = state["user_goals"] if state["user_role"] == "구매자" else state["ai_goals"]
+    seller_goals = state["ai_goals"] if state["user_role"] == "구매자" else state["user_goals"]
+
+    # 각 항목의 배점 가져오기
+    b_refund = buyer_goals.get("환불 받기", 0)
+    b_my_review = buyer_goals.get("판매자에 대한 부정적인 리뷰 유지하기", 0)
+    b_your_review = buyer_goals.get("판매자가 나에 대한 부정적인 리뷰 철회하기", 0)
+    b_apology = buyer_goals.get("상대로부터 공식적인 사과받기", 0)
+
+    s_refund = seller_goals.get("환불 방어", 0)
+    s_my_review = seller_goals.get("구매자에 대한 부정적인 리뷰 유지하기", 0) # 판매자가 쓴 리뷰 유지
+    s_your_review = seller_goals.get("구매자가 나에 대한 부정적인 리뷰 철회하기", 0) # 구매자가 쓴 리뷰 철회
+    s_apology = seller_goals.get("상대로부터 공식적인 사과받기", 0)
+
+    all_outcomes = []
+    max_product = -1
+    nash_point = (0, 0)
+
+    # 모든 경우의 수 순회 (3 x 2 x 2 x 2 x 2 = 48가지)
+    # 환불 (1.0:전액, 0.5:부분, 0.0:없음)
+    refund_opts = [1.0, 0.5, 0.0]
+    # 구매자 리뷰 (1.0:철회, 0.0:유지)
+    b_review_opts = [1.0, 0.0] 
+    # 판매자 리뷰 (1.0:철회, 0.0:유지)
+    s_review_opts = [1.0, 0.0]
+    # 사과 (1.0: 안함, 0.0 함)
+    b_apology_opts = [1.0, 0.0] 
+    s_apology_opts = [1.0, 0.0]
+
+    for rf, br, sr, ba, sa in itertools.product(refund_opts, b_review_opts, s_review_opts, b_apology_opts, s_apology_opts):
+        b_score = (rf * b_refund) + ((1 - br) * b_my_review) + (sr * b_your_review) + (sa * b_apology)
+        s_score = ((1 - rf) * s_refund) + ((1 - sr) * s_my_review) + (br * s_your_review) + (ba * s_apology)
+
+        all_outcomes.append((b_score, s_score))
+        # Nash Product (단, 점수가 0보다 작을 수 없다고 가정)
+        product = b_score * s_score
+        if product > max_product:
+            max_product = product
+            nash_point = (b_score, s_score)
+            
+    return all_outcomes, nash_point
+
+def _draw_pareto_plot(all_outcomes, nash_point, buyer_score, seller_score, session_id):
+    """
+    협상 결과를 시각화하여 저장하는 함수
+    - all_outcomes: 회색 구름 (가능한 모든 결과)
+    - nash_point: 금색 별 (최적점)
+    - buyer/seller_score: 빨간 점 (실제 결과)
+    """
+    save_dir = "images"
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    
+    image_filename = f"Pareto_{session_id}.png"
+    image_path = os.path.join(save_dir, image_filename)
+
+    plt.switch_backend('Agg') 
+    plt.figure(figsize=(7, 7))
+
+    # 가능한 모든 영역
+    all_b = [p[0] for p in all_outcomes]
+    all_s = [p[1] for p in all_outcomes]
+    plt.scatter(all_b, all_s, color='gray', alpha=0.3, s=50, label='Possible Outcomes')
+
+    # 프론티어 라인
+    sorted_points = sorted(all_outcomes, key=lambda x: x[0], reverse=True)
+    frontier = []
+    max_y = -1
+    for x, y in sorted_points:
+        if y > max_y:
+            frontier.append((x, y))
+            max_y = y
+    fx = [p[0] for p in frontier]
+    fy = [p[1] for p in frontier]
+    plt.plot(fx, fy, color='blue', linestyle='--', linewidth=1.5, alpha=0.8, label='Pareto Frontier')
+    
+    # nash point
+    nx, ny = nash_point
+    plt.scatter(nx, ny, color='gold', marker='*', s=300, edgecolors='orange', zorder=10, label='Nash Point (Ideal)')
+    plt.text(nx - 10, ny + 5, f"Nash\n({nx:.0f}, {ny:.0f})", fontsize=9, color='orange', fontweight='bold')
+
+    # 현재 협상 결과
+    plt.scatter(buyer_score, seller_score, color='red', s=100, zorder=5, label='Agreement Point')
+    plt.text(buyer_score + 2, seller_score + 2, f"({buyer_score}, {seller_score})", fontsize=10, color='red')
+
+    # 스타일 설정
+    plt.xlim(-5, 105)
+    plt.ylim(-5, 105)
+    plt.xlabel("Buyer Score")
+    plt.ylabel("Seller Score")
+    plt.title("Negotiation Outcome (Pareto Check)")
+    plt.grid(True, linestyle=':', alpha=0.6)
+    plt.legend(loc='lower left')
+    
+    plt.savefig(image_path, dpi=100, bbox_inches='tight')
+    plt.close()
+

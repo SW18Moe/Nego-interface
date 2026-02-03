@@ -141,14 +141,23 @@ if not st.session_state.is_started:
                 
                 # 초기 실행 (Setup -> 첫 발화 유도)
                 # setup_node가 초기 state를 반환하므로 이를 반영해야 함
-                init_inputs = {
-                    "user_role": role, 
-                    "model": model_name, 
-                    "messages": [],
-                    "user_priority_inputs": user_goals_dict,
-                    "ai_priority_inputs": ai_goals_dict,
-                    "max_retries": max_retries
-                }
+                if "Reflexion" in mode:
+                    init_inputs = {
+                        "user_role": role, 
+                        "model": model_name, 
+                        "messages": [],
+                        "user_priority_inputs": user_goals_dict,
+                        "ai_priority_inputs": ai_goals_dict,
+                        "max_retries": max_retries
+                    }
+                else:
+                    init_inputs = {
+                        "user_role": role, 
+                        "model": model_name, 
+                        "messages": [],
+                        "user_priority_inputs": user_goals_dict,
+                        "ai_priority_inputs": ai_goals_dict
+                    }
                 
                 # Setup 단계 실행 (Reflexion의 경우 setup -> negotiator까지 흐름)
                 with st.spinner("에이전트를 초기화하고 시나리오를 로드 중입니다..."):
