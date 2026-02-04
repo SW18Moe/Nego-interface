@@ -41,3 +41,8 @@ class NegotiationState(TypedDict):
     buyer_score: float
     seller_score: float
     is_finished: bool
+
+    # thought logging
+    reflection_thoughts: Optional[Annotated[List[str], operator.add]]
+    evaluator_thought: Optional[Annotated[List[str], operator.add]]
+    logger_thought = str

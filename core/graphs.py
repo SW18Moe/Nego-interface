@@ -33,7 +33,8 @@ def route_after_negotiation(state: NegotiationState):
     
     # 종료 조건 확인 (턴 수 or is_finished 플래그)
     MAX_TURNS = 10
-    current_turns = len(state["messages"]) // 2
+    current_turns = len([m for m in state["messages"] if m.type == "human"])
+    
     if state.get("is_finished") or current_turns >= MAX_TURNS:
         return "evaluator"
     
@@ -88,13 +89,12 @@ def build_graph(mode: str):
             route_after_negotiation,
             {
                 "tools": "tools",
-                "evaluator": "evaluator", # 대화가 끝나면 평가
-                END: END                  # 사용자 입력 대기
+                "evaluator": "logger", # 대화가 끝나면 평가
+                END: END                # 사용자 입력 대기
             }
         )
         
-        # Evaluator -> Logger -> END (평가 끝나면 저장하고 종료)
-        workflow.add_edge("evaluator", "logger")
+        # Logger -> END 
         workflow.add_edge("logger", END)
 
     else:

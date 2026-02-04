@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime
 import os
 import copy
+import json
 import pandas as pd
 from core.prompts import (
     COT_NEGOTIATOR_SYSTEM,
@@ -97,7 +98,8 @@ def setup_node(state: NegotiationState):
     return initial_state
 
 def negotiator_node(state: NegotiationState):
-    mode = state.get("prompt_mode", "reflexion")
+    mode_val = state.get("mode", "reflexion")
+    mode = "cot" if "CoT" in mode_val else "reflexion"
     templates = PROMPT_REGISTRY.get(mode, PROMPT_REGISTRY["reflexion"])
 
     tools = [policy_search_tool]
@@ -134,14 +136,22 @@ def negotiator_node(state: NegotiationState):
 
     if response.tool_calls:
         return {"messages": [response]}
+    
+    parsed_response = _parse_json_content(response.content)
 
-    content = response.content
-    if "최종 발화:" in content:
-        clean_response = content.split("최종 발화:")[-1].strip()
-    else:
-        clean_response = content.strip()
+    thought = ""
+    clean_response = response.content
 
-    return {"messages": [AIMessage(content=clean_response)]}
+    if parsed_response:
+        thought = parsed_response.get("thought", "")
+        clean_response = parsed_response.get("response", "")
+
+    ai_message = AIMessage(
+        content=clean_response, 
+        additional_kwargs={"thought": thought} 
+    )
+
+    return {"messages": [ai_message]}
 
 def reflection_node(state: NegotiationState):
     llm = _create_llm(state, temperature=0.5)
@@ -163,15 +173,14 @@ def reflection_node(state: NegotiationState):
     )
 
     human_message = HumanMessagePromptTemplate.from_template(
-        template=REFELXION_REFLECTION_HUMAN,
-        input_variables=["role", "scenario", "priority", "scores", "past_reflections", "trajectory"]
+        template=REFELXION_REFLECTION_HUMAN
     )
     
     prompt = ChatPromptTemplate.from_messages([system_message, human_message])
 
-    chain = prompt | llm | StrOutputParser()
+    chain = prompt | llm 
 
-    content = chain.invoke({
+    response = chain.invoke({
         "role": state["ai_role"],
         "scenario": state["ai_scenario"],
         "priority": weighted_priority,
@@ -180,12 +189,21 @@ def reflection_node(state: NegotiationState):
         "trajectory": trajectory
     })
 
-    if "최종 결과" in content:
-        result_text = content.split("최종 결과:")[-1].strip()
-    else:
-        result_text = content.strip()
+    content_text = response.content if hasattr(response, "content") else str(response)
+    parsed_data = _parse_json_content(content_text)
 
-    return {"reflections": [result_text]}
+    reflection_thought = ""
+    reflection = content_text
+
+    if parsed_data:
+        reflection_thought = parsed_data.get("thought", "")
+        reflection = parsed_data.get("result", "")
+
+
+    return {
+        "reflections": [reflection],
+        "reflection_thoughts": [reflection_thought]
+    }
 
 def logging_node(state: NegotiationState):
     """
@@ -205,11 +223,32 @@ def logging_node(state: NegotiationState):
 
     prompt = ChatPromptTemplate.from_messages([system_message, human_message])
 
-    chain = prompt | llm | StrOutputParser()
+    chain = prompt | llm
     
-    result_text = chain.invoke({
+    response = chain.invoke({
         "dialogue": dialogue,
-    }).split("최종 결과:")[-1].strip()
+    })
+    content_text = response.content if hasattr(response, "content") else str(response)
+
+    parsed_data = _parse_json_content(content_text)
+
+    logger_thought = ""
+    result_text = content_text
+
+    if parsed_data:
+        logger_thought = parsed_data.get("thought", "")
+        result_dict = parsed_data.get("result", {})
+        
+        result_text = (
+            f"환불: {result_dict.get('refund', '없음')}\n"
+            f"구매자 리뷰: {result_dict.get('buyer_review', '유지')}\n"
+            f"판매자 리뷰: {result_dict.get('seller_review', '유지')}\n"
+            f"구매자 사과: {result_dict.get('buyer_apology', '아니오')}\n"
+            f"판매자 사과: {result_dict.get('seller_apology', '아니오')}"
+        )
+    
+    state["logger_thought"] = logger_thought
+    state["final_result"] = result_text
 
     unique_id = str(uuid.uuid4())[:8]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -247,6 +286,7 @@ def logging_node(state: NegotiationState):
         "final_result": result_text,
         "buyer_score": buyer_points,
         "seller_score": seller_points,
+        "logger_thought": logger_thought,
         "is_finished": True
     }
 
@@ -268,17 +308,36 @@ def evaluation_node(state: NegotiationState):
 
     prompt = ChatPromptTemplate.from_messages([system_message, human_message])
 
-    chain = prompt | llm | StrOutputParser()
+    chain = prompt | llm 
     
-    result_text = chain.invoke({
+    response = chain.invoke({
         "dialogue": dialogue,
-    }).split("최종 결과:")[-1].strip()
+    })
+    content_text = response.content if hasattr(response, "content") else str(response)
+
+    parsed_data = _parse_json_content(content_text)
+
+    evaluator_thought = ""
+    result_text = content_text
+
+    if parsed_data:
+        evaluator_thought = parsed_data.get("thought", "")
+        result_dict = parsed_data.get("result", {})
+        
+        result_text = (
+            f"환불: {result_dict.get('refund', '없음')}\n"
+            f"구매자 리뷰: {result_dict.get('buyer_review', '유지')}\n"
+            f"판매자 리뷰: {result_dict.get('seller_review', '유지')}\n"
+            f"구매자 사과: {result_dict.get('buyer_apology', '아니오')}\n"
+            f"판매자 사과: {result_dict.get('seller_apology', '아니오')}"
+        )
 
     buyer_reward, seller_reward = _calculate_rewards(state, result_text)
 
     return {
         "buyer_reward": buyer_reward,
-        "seller_reward": seller_reward
+        "seller_reward": seller_reward,
+        "evaluator_thought": evaluator_thought
     }
 
 def _calculate_points(state, result_text):
@@ -397,30 +456,56 @@ def _save_result_to_csv(state, dialogue, result_text, buyer_points, seller_point
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    file_name = f"Reflexion_Result_{seesion_id}.csv"
+    mode_prefix = state.get("mode", "Negotiation")
+
+    file_name = f"{mode_prefix}_Result_{seesion_id}.csv"
     file_path = os.path.join(save_dir, file_name)
 
     formatted_history = []
+    
     for m in state["messages"]:
         speaker = state["user_role"] if m.type == "human" else state["ai_role"]
+        if m.type == "tool":
+            speaker = "Tool"
         content = m.content.strip()
-        formatted_history.append([speaker, content])
+        thought = m.additional_kwargs.get("thought", "")
+        tool_calls = ""
+        if hasattr(m, "tool_calls") and m.tool_calls:
+            tool_calls = str(m.tool_calls)
+
+        formatted_history.append([speaker, content, thought, tool_calls])
 
     buyer_goals = state["user_goals"] if state["user_role"] == "구매자" else state["ai_goals"]
     seller_goals = state["ai_goals"] if state["user_role"] == "구매자" else state["user_goals"]
 
-    df = pd.DataFrame(formatted_history, columns=["화자", "발화"])
+    df = pd.DataFrame(formatted_history, columns=["speaker", "utterance", "negotiator_thought", "tool_calls"])
+    
     df["session_id"] = f"{seesion_id}"
-    df["Human Role"] = state["user_role"]
-    df["AI Role"] = state["ai_role"]
-    df["전체 대화"] = dialogue
+    df["human_role"] = state["user_role"]
+    df["ai_role"] = state["ai_role"]
+    df["full_dialogue"] = dialogue
     
-    df["구매자 목표"] = str(buyer_goals)
-    df["판매자 목표"] = str(seller_goals)
+    df["buyer_goals"] = str(buyer_goals)
+    df["seller_goals"] = str(seller_goals)
     
-    df["구매자 점수"] = buyer_points
-    df["판매자 점수"] = seller_points
-    df["평가 상세"] = result_text
+    df["buyer_points"] = buyer_points
+    df["seller_points"] = seller_points
+    df["evaluation_details"] = result_text
+
+    eval_thoughts = state.get("evaluator_thought", [])
+
+    if isinstance(eval_thoughts, list):
+        df["evaluator_thoughts_all"] = "\n---\n".join(eval_thoughts)
+    else:
+        df["evaluator_thoughts_all"] = str(eval_thoughts)
+    
+    ref_thoughts = state.get("reflection_thoughts", [])
+    if isinstance(ref_thoughts, list):
+        df["reflector_thoughts_all"] = "\n---\n".join(ref_thoughts)
+    else:
+        df["reflector_thoughts_all"] = str(ref_thoughts)
+    
+    df["logger_thoughts"] = state.get("logger_thought", "")
 
     df.to_csv(file_path, index=False, encoding="utf-8-sig")
 
@@ -602,3 +687,13 @@ def _draw_pareto_plot(all_outcomes, nash_point, buyer_score, seller_score, sessi
     plt.savefig(image_path, dpi=100, bbox_inches='tight')
     plt.close()
 
+def _parse_json_content(content: str):
+    """마크다운 코드 블록 제거 및 JSON 파싱"""
+    try:
+        clean_content = content.strip()
+        if clean_content.startswith("```"):
+            clean_content = clean_content.replace("```json", "").replace("```", "")
+        return json.loads(clean_content)
+    except json.JSONDecodeError:
+        print(f"JSON Parsing Failed: {content[:100]}...")
+        return None

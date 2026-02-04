@@ -148,7 +148,8 @@ if not st.session_state.is_started:
                         "messages": [],
                         "user_priority_inputs": user_goals_dict,
                         "ai_priority_inputs": ai_goals_dict,
-                        "max_retries": max_retries
+                        "max_retries": max_retries,
+                        "mode": st.session_state.mode
                     }
                 else:
                     init_inputs = {
@@ -156,7 +157,8 @@ if not st.session_state.is_started:
                         "model": model_name, 
                         "messages": [],
                         "user_priority_inputs": user_goals_dict,
-                        "ai_priority_inputs": ai_goals_dict
+                        "ai_priority_inputs": ai_goals_dict,
+                        "mode": st.session_state.mode
                     }
                 
                 # Setup 단계 실행 (Reflexion의 경우 setup -> negotiator까지 흐름)
