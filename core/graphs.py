@@ -81,7 +81,7 @@ def build_graph(mode: str):
     workflow.add_edge("tools", "negotiator")
 
     # --- 모드별 분기 ---
-    if "CoT" in mode:
+    if "CoT" in mode or "Baseline" in mode:
         # [CoT 모드]: Negotiator -> Evaluator -> Logger -> END
         
         workflow.add_conditional_edges(

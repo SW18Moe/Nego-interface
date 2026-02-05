@@ -27,7 +27,7 @@ def render_priority_editor(role, key_prefix):
             new_name = st.text_input(
                 f"목표 {idx+1}", 
                 value=goal_name, 
-                key=f"{key_prefix}_name_{idx}",
+                key=f"{role}_{key_prefix}_name_{idx}",
                 help="목표의 내용을 수정할 수 있습니다."
             )
             
@@ -38,7 +38,7 @@ def render_priority_editor(role, key_prefix):
                 max_value=100, 
                 value=score, 
                 step=5,
-                key=f"{key_prefix}_score_{idx}",
+                key=f"{role}_{key_prefix}_score_{idx}",
                 help="이 목표의 중요도(점수)입니다."
             )
         
@@ -87,7 +87,11 @@ if not st.session_state.is_started:
             # 1. 모드 선택
             mode = st.radio(
                 "🧪 실험 모드 선택",
-                ["CoT+In-context learning", "ReAct+Reflexion"],
+                [
+                    "Baseline",
+                    "CoT + ICL", 
+                    "ReAct + Reflexion"
+                ],
                 index=0
             )
             if "Reflexion" in mode:
@@ -131,7 +135,12 @@ if not st.session_state.is_started:
             # 시작 버튼
             if st.button("🚀 협상 시작하기", use_container_width=True, type="primary"):
                 # 세션 초기화 및 그래프 로드
-                st.session_state.mode = "CoT" if "CoT+In-context learning" in mode else "Reflexion"
+                if "Baseline" in mode:
+                    st.session_state.mode = "Baseline"
+                elif "CoT" in mode:
+                    st.session_state.mode = "CoT"
+                elif "Reflexion" in mode:
+                    st.session_state.mode = "Reflexion"
                 st.session_state.user_role = role
                 st.session_state.model_name = model_name
                 st.session_state.config["configurable"]["thread_id"] = str(uuid.uuid4())
@@ -221,8 +230,21 @@ else:
             inputs = {"messages": [HumanMessage(content=prompt)]}
             
             reset_triggered = False
-            existing_contents = set(msg["content"] for msg in st.session_state.messages)
-              
+            
+            # [Fix] 기존 메시지 내용을 정규화(공백 제거)하여 저장
+            def normalize_text(text):
+                if not text: return ""
+                return "".join(text.split())
+
+            existing_contents_normalized = set(normalize_text(msg["content"]) for msg in st.session_state.messages if msg.get("content"))
+            
+            # [Fix] 가장 최근 AI 발화 내용을 찾아내어 정규화
+            last_ai_content_normalized = ""
+            for msg in reversed(st.session_state.messages):
+                if msg.get("role") == "assistant":
+                    last_ai_content_normalized = normalize_text(msg.get("content", ""))
+                    break
+
             for event in st.session_state.graph.stream(inputs, st.session_state.config):
                 for node, data in event.items():
                     
@@ -234,8 +256,17 @@ else:
 
                             if not content:
                                 continue
+                            
+                            content_normalized = normalize_text(content)
+                            if not content_normalized:
+                                continue
                 
-                            if content in existing_contents:
+                            # 1. 전체 이력 중복 체크 (정규화된 텍스트 기준)
+                            if content_normalized in existing_contents_normalized:
+                                continue
+                            
+                            # 2. 직전 발화 중복 체크 (정규화된 텍스트 기준)
+                            if last_ai_content_normalized and content_normalized == last_ai_content_normalized:
                                 continue
                             
                             if not reset_triggered:
@@ -250,7 +281,8 @@ else:
                                 "avatar": "🤖"
                             })
 
-                            existing_contents.add(content)
+                            # 새로 추가된 메시지도 중복 체크 목록에 추가
+                            existing_contents_normalized.add(content_normalized)
 
                     # B. Evaluator 노드
                     elif node == "evaluator":

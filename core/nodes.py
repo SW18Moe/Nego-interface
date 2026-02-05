@@ -23,7 +23,9 @@ from core.prompts import (
     REFELXION_NEGOTIATOR_SYSTEM,
     REFELXION_NEGOTIATOR_HUMAN,
     REFELXION_REFLECTION_SYSTEM,
-    REFELXION_REFLECTION_HUMAN
+    REFELXION_REFLECTION_HUMAN,
+    BASELINE_SYSTEM,
+    BASELINE_HUMAN 
 )
 from core.scenarios import (
     PRIORITIES,
@@ -43,6 +45,10 @@ PROMPT_REGISTRY = {
     "cot": {
         "system": COT_NEGOTIATOR_SYSTEM,
         "human": COT_NEGOTIATOR_HUMAN
+    },
+    "baseline": {
+        "system": BASELINE_SYSTEM,
+        "human": BASELINE_HUMAN
     }
 }
 
@@ -99,16 +105,27 @@ def setup_node(state: NegotiationState):
 
 def negotiator_node(state: NegotiationState):
     mode_val = state.get("mode", "reflexion")
-    mode = "cot" if "CoT" in mode_val else "reflexion"
+    
+    if "CoT" in mode_val:
+        mode = "cot"
+    elif "Baseline" in mode_val:
+        mode = "baseline"
+    elif "Reflexion" in mode_val:
+        mode = "reflexion"
+
     templates = PROMPT_REGISTRY.get(mode, PROMPT_REGISTRY["reflexion"])
 
-    tools = [policy_search_tool]
-    llm = _create_llm(state, temperature=0.9).bind_tools(tools)
+    if mode == "baseline":
+        llm = _create_llm(state, temperature=0.9)
+    else:
+        tools = [policy_search_tool]
+        llm = _create_llm(state, temperature=0.9).bind_tools(tools)
     
     recent_msgs = state["messages"][-4:] if state["messages"] else []
     recent_summary = "\n".join([f"{type(m).__name__}: {m.content}" for m in recent_msgs])
 
-    weighted_priority_context = _get_weighted_priority(state)
+    include_instruction = False if mode == "baseline" else True
+    weighted_priority_context = _get_weighted_priority(state, include_instruction=include_instruction)
     
     reflections_str = _parse_reflections(state.get("reflections", []))
 
@@ -134,7 +151,7 @@ def negotiator_node(state: NegotiationState):
         "last_message": last_message
     })
 
-    if response.tool_calls:
+    if hasattr(response, "tool_calls") and response.tool_calls:
         return {"messages": [response]}
     
     parsed_response = _parse_json_content(response.content)
