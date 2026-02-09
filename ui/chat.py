@@ -51,14 +51,14 @@ def process_graph_stream(user_input):
                         continue
 
                     if not reset_triggered:
-                        with st.chat_message("assistant", avatar="🤖"):
+                        with st.chat_message("assistant", avatar="🧑‍💻"):
                             st.markdown(content)
                     
                     # 세션에 기록
                     st.session_state.messages.append({
                         "role": "assistant", 
                         "content": content, 
-                        "avatar": "🤖"
+                        "avatar": "🧑‍💻"
                     })
                     # 중복 체크 리스트 업데이트
                     existing_contents_normalized.add(content_norm)

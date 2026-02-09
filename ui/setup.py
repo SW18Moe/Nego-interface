@@ -100,9 +100,9 @@ def render_setup_screen():
 
             # 상대방 목표 설정
             ai_role_name = "판매자" if role == "구매자" else "구매자"
-            st.markdown(f"#### 🤖 상대방 ({ai_role_name})의 목표 설정")
+            st.markdown(f"#### 🧑‍💻 상대방 ({ai_role_name})의 목표 설정")
             with st.expander("상대방 목표 상세 편집 (클릭)", expanded=False):
-                st.info("AI는 이 목표들을 달성하기 위해 전략을 수립합니다.")
+                st.info("상대방은 이 목표들을 달성하기 위해 전략을 수립합니다.")
                 ai_goals_dict = render_priority_editor(ai_role_name, key_prefix="ai")
 
             st.markdown("---")
@@ -157,7 +157,7 @@ def render_setup_screen():
                                         st.session_state.messages.append({
                                             "role": "assistant",
                                             "content": last_msg.content,
-                                            "avatar": "🤖"
+                                            "avatar": "🧑‍💻"
                                         })
                     except Exception as e:
                         st.error(f"초기화 중 오류 발생: {e}")
