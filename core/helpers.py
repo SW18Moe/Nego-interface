@@ -10,6 +10,8 @@ import pandas as pd
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
+import base64
+from io import BytesIO
 
 def calculate_points(state, result_text):
     """
@@ -358,6 +360,69 @@ def draw_pareto_plot(all_outcomes, nash_point, buyer_score, seller_score, sessio
     plt.savefig(image_path, dpi=100, bbox_inches='tight')
     plt.close()
 
+def pareto_to_base64(all_outcomes, nash_point, buyer_score, seller_score, session_id):
+    """
+    파레토 그래프를 base64로 변환하여 반환
+    
+    Args:
+        all_outcomes: 회색 구름 (가능한 모든 결과)
+        nash_point: 금색 별 (최적점)
+        buyer_score: 빨간 점의 x 좌표 (구매자 점수)
+        seller_score: 빨간 점의 y 좌표 (판매자 점수)
+    
+    Returns:
+        base64 인코딩된 PNG 이미지 문자열
+    """
+    plt.switch_backend('Agg')
+    fig = plt.figure(figsize=(7, 7))
+
+    # 가능한 모든 영역
+    all_b = [p[0] for p in all_outcomes]
+    all_s = [p[1] for p in all_outcomes]
+    plt.scatter(all_b, all_s, color='gray', alpha=0.3, s=50, label='Possible Outcomes')
+
+    # 프론티어 라인
+    sorted_points = sorted(all_outcomes, key=lambda x: x[0], reverse=True)
+    frontier = []
+    max_y = -1
+    for x, y in sorted_points:
+        if y > max_y:
+            frontier.append((x, y))
+            max_y = y
+    fx = [p[0] for p in frontier]
+    fy = [p[1] for p in frontier]
+    plt.plot(fx, fy, color='blue', linestyle='--', linewidth=1.5, alpha=0.8, label='Pareto Frontier')
+    
+    # nash point
+    nx, ny = nash_point
+    plt.scatter(nx, ny, color='gold', marker='*', s=300, edgecolors='orange', zorder=10, label='Nash Point (Ideal)')
+    plt.text(nx - 10, ny + 5, f"Nash\n({nx:.0f}, {ny:.0f})", fontsize=9, color='orange', fontweight='bold')
+
+    # 현재 협상 결과
+    plt.scatter(buyer_score, seller_score, color='red', s=100, zorder=5, label='Agreement Point')
+    plt.text(buyer_score + 2, seller_score + 2, f"({buyer_score}, {seller_score})", fontsize=10, color='red')
+
+    # 스타일 설정
+    plt.xlim(-5, 105)
+    plt.ylim(-5, 105)
+    plt.xlabel("Buyer Score")
+    plt.ylabel("Seller Score")
+    plt.title(f"Negotiation Outcome ({session_id})")
+    plt.grid(True, linestyle=':', alpha=0.6)
+    plt.legend(loc='lower left')
+    
+    # BytesIO 버퍼에 저장
+    buffer = BytesIO()
+    plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+    buffer.seek(0)
+    
+    # base64로 인코딩
+    image_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # 순수 base64만 반환 (Firebase에는 순수 base64 저장, 웹에서는 data URL 프리픽스 붙이기)
+    return image_base64
+
 def parse_json_content(content: str):
     """마크다운 코드 블록 제거 및 JSON 파싱"""
     try:
@@ -369,7 +434,7 @@ def parse_json_content(content: str):
         print(f"JSON Parsing Failed: {content[:100]}...")
         return None
 
-def save_result_to_firebase(state, dialogue, result_text, buyer_points, seller_points, session_id):
+def save_result_to_firebase(state, dialogue, result_text, buyer_points, seller_points, session_id, pareto_image_base64=None):
     """
     협상 결과를 Firebase Firestore에 저장
     
@@ -380,6 +445,7 @@ def save_result_to_firebase(state, dialogue, result_text, buyer_points, seller_p
         buyer_points: 구매자 점수
         seller_points: 판매자 점수
         session_id: 세션 고유 ID
+        pareto_image_base64: 파레토 그래프의 base64 인코딩 이미지 (선택사항)
     """
     try:
         # Firebase 초기화 (최초 1회)
@@ -431,6 +497,7 @@ def save_result_to_firebase(state, dialogue, result_text, buyer_points, seller_p
             "evaluator_thoughts_all": _join_thoughts(state.get("evaluator_thought")),
             "reflector_thoughts_all": _join_thoughts(state.get("reflection_thoughts")),
             "logger_thoughts": state.get("logger_thought", ""),
+            "pareto_image": pareto_image_base64,  # 파레토 그래프 base64 이미지
             "timestamp": firestore.SERVER_TIMESTAMP  # 서버 타임스탬프 추가
         }
 

@@ -39,8 +39,10 @@ from core.helpers import (
     calculate_rewards,
     calculate_nash_point,
     draw_pareto_plot,
+    pareto_to_base64,
     save_result_to_csv,
-    save_result_to_firebase
+    save_result_to_firebase,
+    pareto_to_base64
 )
 
 PROMPT_REGISTRY = {
@@ -356,6 +358,19 @@ def logging_node(state: NegotiationState):
     buyer_points, seller_points = calculate_points(state, result_text)
     all_outcomes, nash_point = calculate_nash_point(state)
 
+    # 파레토 그래프를 base64로 변환
+    pareto_image_base64 = None
+    try:
+        pareto_image_base64 = pareto_to_base64(
+            all_outcomes=all_outcomes,
+            nash_point=nash_point,
+            buyer_score=buyer_points,
+            seller_score=seller_points,
+            session_id=session_id
+        )
+    except Exception as e:
+        print(f"파레토 그래프 base64 변환 실패: {e}")
+
     try:
         save_ok = save_result_to_firebase(
             state=state,
@@ -363,24 +378,27 @@ def logging_node(state: NegotiationState):
             result_text=result_text,
             buyer_points=buyer_points,
             seller_points=seller_points,
-            session_id=session_id
+            session_id=session_id,
+            pareto_image_base64=pareto_image_base64
         )
         if not save_ok:
             print("Firebase 저장 실패")
     except Exception as e:
         print(f"Firebase 저장 실패: {e}")
     
-    try:
-        draw_pareto_plot(
-            all_outcomes=all_outcomes,
-            nash_point=nash_point,
-            buyer_score=buyer_points,
-            seller_score=seller_points,
-            session_id=session_id
-        )
-    
-    except Exception as e:
-        print(f"그래프 저장 실패: {e}")
+    # 로컬에 파레토 저장하는 로직
+
+    # try:
+    #     draw_pareto_plot(
+    #         all_outcomes=all_outcomes,
+    #         nash_point=nash_point,
+    #         buyer_score=buyer_points,
+    #         seller_score=seller_points,
+    #         session_id=session_id
+    #     )
+    # 
+    # except Exception as e:
+    #     print(f"그래프 저장 실패: {e}")
 
     # 7. 최종 상태 업데이트
     return {
