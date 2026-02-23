@@ -111,19 +111,18 @@ def render_sidebar():
         st.divider()
         
         # 사용자 시나리오 표시
-        st.subheader("📋 내 시나리오")
+        st.subheader("내 시나리오")
         user_role = st.session_state.user_role
         scenario_text = SCENARIOS.get(user_role, "시나리오를 찾을 수 없습니다.")
-        
-        st.divider()
-        st.subheader("내 시나리오")
-        st.write(scenario_text)
+        with st.expander("시나리오 상세 보기 (클릭)", expanded=False):
+            st.write(scenario_text)
         
         st.divider()
         st.subheader("내 우선순위")
         user_priorities = PRIORITIES.get(st.session_state.user_role, {})
-        for item, score in user_priorities.items():
-            st.write(f"- {item} ({score}점)")
+        with st.expander("우선순위 상세 보기 (클릭)", expanded=False):
+            for item, score in user_priorities.items():
+                st.write(f"- {item} ({score}점)")
         
         st.divider()
         if st.button("🔄 실험 다시 하기 (초기화)", type="secondary"):

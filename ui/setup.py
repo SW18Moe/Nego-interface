@@ -95,7 +95,7 @@ def render_setup_screen():
             st.markdown("---")
 
             st.markdown(f"#### 🎯 나 ({role})의 목표 설정")
-            with st.expander("내 목표 상세 편집 (클릭)", expanded=True):
+            with st.expander("내 목표 상세 편집 (클릭)", expanded=False):
                 user_goals_dict = render_priority_editor(role, key_prefix="user")
 
             # 상대방 목표 설정
