@@ -1,6 +1,7 @@
 import streamlit as st
 from langchain_core.messages import HumanMessage, AIMessage
 from core.scenarios import PRIORITIES, SCENARIOS
+from core.nodes import evaluation_node, logging_node
 
 def render_messages(chat_placeholder):
     with chat_placeholder.container():
@@ -125,7 +126,41 @@ def render_sidebar():
                 st.write(f"- {item} ({score}점)")
         
         st.divider()
-        if st.button("🔄 실험 다시 하기 (초기화)", type="secondary"):
+        
+        # 협상 종료 버튼
+        if st.button("협상 종료", type="primary", use_container_width=True):
+            # 평가 및 로깅 노드 직접 호출
+            with st.spinner("협상을 평가하고 저장 중입니다..."):
+                try:
+                    # 현재 상태 가져오기
+                    current_state = st.session_state.graph.get_state(st.session_state.config).values
+                    current_state["is_finished"] = True
+                    
+                    # 로깅 노드 실행
+                    log_result = logging_node(current_state)
+                    
+                    # 상태 업데이트
+                    st.session_state.graph.update_state(
+                        st.session_state.config,
+                        log_result
+                    )
+                    success_flag = True
+                except Exception as e:
+                    st.error(f"❌ 오류 발생: {str(e)}")
+                    success_flag = False
+            
+            # spinner 밖에서 success/balloons 표시
+            if success_flag:
+                st.session_state.show_end_success = True
+                st.session_state.messages.append({
+                    "role": "system",
+                    "content": "협상이 정상 종료되었습니다.",
+                    "avatar": "✅"
+                })
+            
+            st.rerun()
+        
+        if st.button("🔄 실험 다시 하기 (초기화)", type="secondary", use_container_width=True):
             st.session_state.is_started = False
             st.session_state.messages = []
             st.rerun()
@@ -155,21 +190,24 @@ def check_negotiation_finished():
 def render_chat_screen():
     """채팅 화면 전체를 구성하는 메인 함수"""
     
-    # 1. 사이드바 렌더링
+    # 1. 이전 협상 종료 성공 메시지 표시
+    if st.session_state.get("show_end_success"):
+        st.success("✅ 협상이 종료되고 평가 결과가 저장되었습니다!")
+        st.balloons()
+        st.session_state.show_end_success = False
+    
+    # 2. 사이드바 렌더링
     render_sidebar()
 
-    # 2. 대화 기록 렌더링 (컨테이너 사용 권장)
-    chat_container = st.container()
-    with chat_container:
-        render_chat_history()
+    # 3. 대화 기록 렌더링
+    render_chat_history()
 
-    # 3. 사용자 입력 처리
+    # 4. 사용자 입력 처리
     if prompt := st.chat_input("메시지를 입력하세요..."):
         # (1) 사용자 메시지 즉시 표시
         st.session_state.messages.append({"role": "user", "content": prompt, "avatar": "👤"})
-        with chat_container:
-            with st.chat_message("user", avatar="👤"):
-                st.markdown(prompt)
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(prompt)
 
         # (2) AI 응답 처리 (스트리밍)
         with st.spinner("상대방이 생각 중입니다..."):
