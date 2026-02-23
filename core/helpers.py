@@ -18,7 +18,7 @@ def calculate_points(state, result_text):
     [OTC 정의]
     refund otc : 1 (full)/ .5 (half) / 0 (none)
     reviews otc: 1 (retract) / 0 (keep)
-    apology otc: 1 (didn't) / 0 (did)
+    apology otc: 1 (did) / 0 (didn't) 
 
     [점수 공식]
     buyer points = (Refund_otc * Rank_1) + (1-MyReview_otc ) * Rank_2 + (OtherReview_otc * Rank_3) + (Apology_otc * Rank_4)
@@ -48,8 +48,8 @@ def calculate_points(state, result_text):
     buyer_review_otc = 1.0 if "구매자 리뷰: 철회" in result_text else 0.0
     seller_review_otc = 1.0 if "판매자 리뷰: 철회" in result_text else 0.0
 
-    seller_apology_otc = 0.0 if "판매자 사과: 있음" in result_text else 1.0
-    buyer_apology_otc = 0.0 if "구매자 사과: 있음" in result_text else 1.0
+    seller_apology_otc = 1.0 if "판매자 사과: 있음" in result_text else 0.0
+    buyer_apology_otc = 1.0 if "구매자 사과: 있음" in result_text else 0.0
 
     buyer_points = (
         (refund_otc * b_rank1) + 
