@@ -1,6 +1,6 @@
 import streamlit as st
 from langchain_core.messages import HumanMessage, AIMessage
-from core.scenarios import PRIORITIES
+from core.scenarios import PRIORITIES, SCENARIOS
 
 def render_messages(chat_placeholder):
     with chat_placeholder.container():
@@ -108,6 +108,17 @@ def render_sidebar():
         st.write(f"**상대방:** {'판매자' if st.session_state.user_role == '구매자' else '구매자'}")
         st.write(f"**모델:** {st.session_state.model_name}")
 
+        st.divider()
+        
+        # 사용자 시나리오 표시
+        st.subheader("📋 내 시나리오")
+        user_role = st.session_state.user_role
+        scenario_text = SCENARIOS.get(user_role, "시나리오를 찾을 수 없습니다.")
+        
+        st.divider()
+        st.subheader("내 시나리오")
+        st.write(scenario_text)
+        
         st.divider()
         st.subheader("내 우선순위")
         user_priorities = PRIORITIES.get(st.session_state.user_role, {})
