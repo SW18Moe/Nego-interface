@@ -51,9 +51,15 @@ def route_after_evaluation(state: NegotiationState):
     return "reflector"
 
 def build_graph(mode: str):
-    """
-    모드에 따라 적절한 그래프를 생성하여 반환하는 통합 팩토리 함수
-    mode: "CoT+In-context learning" or "ReAct+Reflexion"
+    """모드에 따라 적절한 그래프를 생성하여 반환하는 통합 팩토리 함수.
+
+    현재 UI에서 사용하는 모드 값:
+    - "baseline":      BASELINE 프롬프트 사용
+    - "cot_previous":  COT_PREVIOUS 프롬프트 사용
+    - "cot_upgrade":   COT_NEGOTIATOR (개선 버전) 프롬프트 사용
+
+    이들 모드는 모두 단일 패스 그래프(Reflexion 없음)를 사용합니다.
+    구(舊) "Reflexion" 모드만 반성 루프를 포함한 그래프를 유지합니다.
     """
     workflow = StateGraph(NegotiationState)
     memory = MemorySaver()
@@ -81,7 +87,8 @@ def build_graph(mode: str):
     workflow.add_edge("tools", "negotiator")
 
     # --- 모드별 분기 ---
-    if "CoT" in mode or "Baseline" in mode:
+    # 새 모드(baseline, cot_previous, cot_upgrade)는 모두 단일 패스 사용
+    if mode in ("baseline", "cot_previous", "cot_upgrade") or "CoT" in mode or "Baseline" in mode:
         # [CoT 모드]: Negotiator -> Evaluator -> Logger -> END
         
         workflow.add_conditional_edges(

@@ -62,19 +62,18 @@ def render_setup_screen():
                 "🧪 실험 모드 선택",
                 [
                     "Baseline",
-                    "CoT + ICL", 
-                    "ReAct + Reflexion"
+                    "CoT_previous",
+                    "CoT_upgrade"
                 ],
                 index=0
             )
-            if "Reflexion" in mode:
-                max_retries = st.slider(
-                    "🔄 최대 반성(Retry) 횟수 설정",
-                    min_value=1,
-                    max_value=10,
-                    value=3,
-                    help="협상 실패 시 전략을 수정하여 재시도할 최대 횟수입니다."
-                )
+            # 선택된 모드 설명
+            mode_descriptions = {
+                "Baseline": "기본 에이전트",
+                "CoT_previous": "CoT, ICL (JSON 출력 강제, 중재자 피드백 제거)",
+                "CoT_upgrade": "CoT, ICL, Few-shot, RAG Tools, 협상 전략 설명 강화"
+            }
+            st.caption(f"{mode_descriptions.get(mode, '')}")
             
             # 역할 선택
             role = st.selectbox("👤 사용자 역할", ["구매자", "판매자"])
@@ -111,11 +110,11 @@ def render_setup_screen():
             if st.button("🚀 협상 시작하기", use_container_width=True, type="primary"):
                 # 세션 초기화 및 그래프 로드
                 if "Baseline" in mode:
-                    st.session_state.mode = "Baseline"
-                elif "CoT" in mode:
-                    st.session_state.mode = "CoT"
-                elif "Reflexion" in mode:
-                    st.session_state.mode = "Reflexion"
+                    st.session_state.mode = "baseline"
+                elif "CoT_previous" in mode:
+                    st.session_state.mode = "cot_previous"
+                elif "CoT_upgrade" in mode:
+                    st.session_state.mode = "cot_upgrade"
                 st.session_state.user_role = role
                 st.session_state.model_name = model_name
                 st.session_state.config["configurable"]["thread_id"] = str(uuid.uuid4())
@@ -124,28 +123,17 @@ def render_setup_screen():
                 st.session_state.graph = build_graph(st.session_state.mode)
                 
                 # 초기 실행
-                if "Reflexion" in mode:
-                    init_inputs = {
-                        "user_role": role, 
-                        "model": model_name, 
-                        "messages": [],
-                        "user_priority_inputs": user_goals_dict,
-                        "ai_priority_inputs": ai_goals_dict,
-                        "max_retries": max_retries,
-                        "mode": st.session_state.mode
-                    }
-                else:
-                    init_inputs = {
-                        "user_role": role, 
-                        "model": model_name, 
-                        "messages": [],
-                        "user_priority_inputs": user_goals_dict,
-                        "ai_priority_inputs": ai_goals_dict,
-                        "mode": st.session_state.mode
-                    }
+                init_inputs = {
+                    "user_role": role, 
+                    "model": model_name, 
+                    "messages": [],
+                    "user_priority_inputs": user_goals_dict,
+                    "ai_priority_inputs": ai_goals_dict,
+                    "mode": st.session_state.mode
+                }
                 
                 # Setup 단계 실행 
-                with st.spinner("에이전트를 초기화하고 시나리오를 로드 중입니다..."):
+                with st.spinner("협상 준비 중..."):
                     try:
                         # stream 모드로 실행하여 첫 메시지를 가져옴
                         for event in st.session_state.graph.stream(init_inputs, st.session_state.config):

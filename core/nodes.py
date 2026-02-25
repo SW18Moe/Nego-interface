@@ -10,6 +10,8 @@ from langchain_core.runnables import RunnableParallel
 from core.prompts import (
     COT_NEGOTIATOR_SYSTEM,
     COT_NEGOTIATOR_HUMAN, 
+    COT_PREVIOUS_SYSTEM,
+    COT_PREVIOUS_HUMAN,
     EVALUATOR_SYSTEM,
     EVALUATOR_HUMAN,
     REFLEXION_NEGOTIATOR_SYSTEM,
@@ -46,17 +48,22 @@ from core.helpers import (
 )
 
 PROMPT_REGISTRY = {
-    "reflexion": {
-        "system": REFLEXION_NEGOTIATOR_SYSTEM,
-        "human": REFLEXION_NEGOTIATOR_HUMAN
-    },
-    "cot": {
-        "system": COT_NEGOTIATOR_SYSTEM,
-        "human": COT_NEGOTIATOR_HUMAN
-    },
     "baseline": {
         "system": BASELINE_SYSTEM,
         "human": BASELINE_HUMAN
+    },
+    "cot_previous": {
+        "system": COT_PREVIOUS_SYSTEM,
+        "human": COT_PREVIOUS_HUMAN
+    },
+    "cot_upgrade": {
+        "system": COT_NEGOTIATOR_SYSTEM,
+        "human": COT_NEGOTIATOR_HUMAN
+    },
+    # 구(舊) Reflexion 모드 호환용 (UI에서는 사용 안 함)
+    "reflexion": {
+        "system": REFLEXION_NEGOTIATOR_SYSTEM,
+        "human": REFLEXION_NEGOTIATOR_HUMAN
     }
 }
 
@@ -64,7 +71,7 @@ def setup_node(state: NegotiationState):
     u_role = state.get("user_role", "구매자") 
     a_role = "판매자" if u_role == "구매자" else "구매자"
     model = state.get("model", "gpt-4o")
-    mode = state.get("mode", "reflexion")
+    mode = state.get("mode", "baseline")
 
     max_retries = state.get("max_retries", 3)
     past_reflections = state.get("reflections", [])
@@ -125,16 +132,22 @@ def setup_node(state: NegotiationState):
     return initial_state
 
 def negotiator_node(state: NegotiationState):
-    mode_val = state.get("mode", "reflexion")
-    
-    if "CoT" in mode_val:
-        mode = "cot"
+    mode_val = state.get("mode", "baseline")
+
+    # 새로운 모드 문자열 우선 사용, 기존 대문자 모드는 하위 호환용
+    if mode_val in PROMPT_REGISTRY:
+        mode = mode_val
+    elif "CoT" in mode_val:
+        # 예전 "CoT" 모드는 개선 버전으로 매핑
+        mode = "cot_upgrade"
     elif "Baseline" in mode_val:
         mode = "baseline"
     elif "Reflexion" in mode_val:
         mode = "reflexion"
+    else:
+        mode = "baseline"
 
-    templates = PROMPT_REGISTRY.get(mode, PROMPT_REGISTRY["reflexion"])
+    templates = PROMPT_REGISTRY.get(mode, PROMPT_REGISTRY["baseline"])
 
     if mode == "baseline":
         llm = create_llm(state, temperature=0.9)
