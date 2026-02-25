@@ -17,10 +17,15 @@ def init_session_state():
     """
     defaults = {
         "is_started": False,           # 협상 시작 여부
-        "messages": [],                # 채팅 기록
+        "messages": [],                # 채팅 기록 (UI용)
         "graph": None,                 # LangGraph 객체
         "config": {"configurable": {"thread_id": str(uuid.uuid4())}}, # 그래프 설정
-        "negotiation_status": "진행 중" # 현재 상태
+        "negotiation_status": "진행 중", # 현재 상태
+        # Human-in-the-loop 평가/설문용 상태
+        "form_step": None,            # None | "evaluation" | "survey" | "done"
+        "human_evaluation": {},       # 협상 결과 코딩 값 저장
+        "survey_results": {},         # 심리적 만족도 설문 응답 저장
+        "show_end_success": False     # 종료 성공 메시지 플래그
     }
 
     for key, value in defaults.items():

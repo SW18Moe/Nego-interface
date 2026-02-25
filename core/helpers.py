@@ -498,7 +498,9 @@ def save_result_to_firebase(state, dialogue, result_text, buyer_points, seller_p
             "reflector_thoughts_all": _join_thoughts(state.get("reflection_thoughts")),
             "logger_thoughts": state.get("logger_thought", ""),
             "pareto_image": pareto_image_base64,  # 파레토 그래프 base64 이미지
-            "timestamp": firestore.SERVER_TIMESTAMP  # 서버 타임스탬프 추가
+            "timestamp": firestore.SERVER_TIMESTAMP,  # 서버 타임스탬프 추가
+            "human_evaluation": state.get("human_evaluation", {}),
+            "survey_results": state.get("survey_results", {})
         }
 
         doc_ref.set(data)

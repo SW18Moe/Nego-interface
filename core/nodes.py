@@ -311,42 +311,19 @@ def logging_node(state: NegotiationState):
     협상 종료 후, 연구 분석용 데이터를 생성하고 저장하는 노드
     """
     
-    llm = create_llm(state, temperature=0.5)
-    system_message = SystemMessagePromptTemplate.from_template(
-            template=EVALUATOR_SYSTEM
-        )
-
-    human_message = HumanMessagePromptTemplate.from_template(
-        template=EVALUATOR_HUMAN
-    )
-    
     dialogue = "\n".join([f"[{m.type}] {m.content}" for m in state["messages"]])
 
-    prompt = ChatPromptTemplate.from_messages([system_message, human_message])
-
-    chain = prompt | llm
+    human_eval = state.get("human_evaluation", {})
     
-    response = chain.invoke({
-        "dialogue": dialogue,
-    })
-    content_text = response.content if hasattr(response, "content") else str(response)
-
-    parsed_data = parse_json_content(content_text)
-
-    logger_thought = ""
-    result_text = content_text
-
-    if parsed_data:
-        logger_thought = parsed_data.get("thought", "")
-        result_dict = parsed_data.get("result", {})
-        
-        result_text = (
-            f"환불: {result_dict.get('refund', '없음')}\n"
-            f"구매자 리뷰: {result_dict.get('buyer_review', '유지')}\n"
-            f"판매자 리뷰: {result_dict.get('seller_review', '유지')}\n"
-            f"구매자 사과: {result_dict.get('buyer_apology', '아니오')}\n"
-            f"판매자 사과: {result_dict.get('seller_apology', '아니오')}"
-        )
+    result_text = (
+        f"환불: {human_eval.get('refund', '없음')}\n"
+        f"구매자 리뷰: {human_eval.get('buyer_review', '유지')}\n"
+        f"판매자 리뷰: {human_eval.get('seller_review', '유지')}\n"
+        f"구매자 사과: {human_eval.get('buyer_apology', '아니오')}\n"
+        f"판매자 사과: {human_eval.get('seller_apology', '아니오')}"
+    )
+    
+    logger_thought = human_eval.get("thought", "")
     
     state["logger_thought"] = logger_thought
     state["final_result"] = result_text
